@@ -26,6 +26,4 @@
 | POST    | /employees         | Neuen Mitarbeiter anlegen          |
 | PUT     | /employees/{id}    | Mitarbeiter aktualisieren          |
 | DELETE  | /employees/{id}    | Mitarbeiter löschen               |
-| **Sonstiges**                             |
-| POST    | /ask               | Natürliche Sprache → SQL + Ergebnis|
 
