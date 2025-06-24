@@ -1,6 +1,8 @@
 from sqlalchemy import create_engine, MetaData
 from sqlalchemy.orm import sessionmaker, declarative_base
 
+
+
 DATABASE_URL = "sqlite:///./sales.db"
 
 engine = create_engine(

@@ -6,7 +6,13 @@ import random
 
 db = SessionLocal()
 
-# --- Customers (20) ---
+# --- Hilfsfunktionen ---
+def create_entries(model_class, data_list):
+    """Fügt eine Liste von Dictionaries als neue Einträge in die Datenbank ein."""
+    for entry in data_list:
+        db.add(model_class(**entry))
+
+# --- Seed-Daten ---
 customers = [
     {"name": "Hans Johannesen", "email": "hj1@example.com", "city": "Berlin", "country": "Germany"},
     {"name": "Anna Müller", "email": "anna.mueller@example.com", "city": "Munich", "country": "Germany"},
@@ -30,7 +36,6 @@ customers = [
     {"name": "Julia Neumann", "email": "julia.neumann@example.com", "city": "Wiesbaden", "country": "Germany"},
 ]
 
-# --- Products (20) ---
 products = [
     {"name": "Laptop Pro 15", "description": "High-end laptop", "price": Decimal("1499.99"), "stock": 25},
     {"name": "Smartphone X", "description": "Latest smartphone model", "price": Decimal("999.99"), "stock": 50},
@@ -54,7 +59,6 @@ products = [
     {"name": "Gaming Mouse", "description": "High precision mouse", "price": Decimal("69.99"), "stock": 70},
 ]
 
-# --- Employees (20) ---
 employees = [
     {"first_name": "Michael", "last_name": "Schneider", "email": "michael.schneider@example.com", "position": "Sales Manager"},
     {"first_name": "Laura", "last_name": "Hartmann", "email": "laura.hartmann@example.com", "position": "Accountant"},
@@ -78,50 +82,30 @@ employees = [
     {"first_name": "Miriam", "last_name": "Hoffmann", "email": "miriam.hoffmann@example.com", "position": "Customer Support"},
 ]
 
-# --- Sales (20) ---
-sales = []
-for i in range(20):
-    customer_id = (i % 20) + 1  # IDs 1-20 cycling
-    product_id = random.randint(1, 20)
-    quantity = random.randint(1, 5)
-    product_price = products[product_id - 1]["price"]
-    total_amount = product_price * quantity
-    sale_date = date(2025, random.randint(1, 6), random.randint(1, 28))
-    city = customers[customer_id - 1]["city"]
-    sales.append({
-        "customer_id": customer_id,
-        "product_id": product_id,
-        "quantity": quantity,
-        "total_amount": total_amount,
-        "sale_date": sale_date,
-        "city": city,
-    })
+def generate_sales(num_sales=20):
+    """Erzeugt eine Liste zufälliger Verkäufe."""
+    return [
+        {
+            "customer_id": (i % 20) + 1,
+            "product_id": random.randint(1, 20),
+            "employee_id": random.randint(1, 20),
+            "quantity": random.randint(1, 5),
+            "total_amount": products[(i % 20)]["price"] * random.randint(1, 5),
+            "sale_date": date(2025, random.randint(1, 6), random.randint(1, 28)),
+            "city": customers[(i % 20)]["city"],
+        }
+        for i in range(num_sales)
+    ]
 
 def seed():
-    # Insert Customers
-    for c in customers:
-        db_customer = Customer(**c)
-        db.add(db_customer)
-
-    # Insert Products
-    for p in products:
-        db_product = Product(**p)
-        db.add(db_product)
-
-    # Insert Employees
-    for e in employees:
-        db_employee = Employee(**e)
-        db.add(db_employee)
-
+    create_entries(Customer, customers)
+    create_entries(Product, products)
+    create_entries(Employee, employees)
     db.commit()
 
-    # Insert Sales (after committing customers and products)
-    for s in sales:
-        db_sale = Sale(**s)
-        db.add(db_sale)
-
+    create_entries(Sale, generate_sales())
     db.commit()
 
 if __name__ == "__main__":
     seed()
-    print("Database seeded with 20 entries for Customers, Products, Employees, and Sales.")
+    print("✅ Datenbank erfolgreich mit Testdaten befüllt.")
