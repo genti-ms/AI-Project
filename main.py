@@ -7,8 +7,9 @@ from dotenv import load_dotenv
 import os
 import openai
 
+from schemas import GeneratedTextCreate, GeneratedTextResponse
 from database import SessionLocal, engine
-from models import Base, Sale, Customer, Product, Employee
+from models import Base, Sale, Customer, Product, Employee, GeneratedText
 
 load_dotenv()
 
@@ -256,10 +257,12 @@ def delete_employee(employee_id: int, db: Session = Depends(get_db)):
 class PromptRequest(BaseModel):
     prompt: str
 
-@app.post("/generate-text")
-async def generate_text(request: PromptRequest = Body(...)):
+import json
+
+@app.post("/generate-text", response_model=GeneratedTextResponse)
+async def generate_text(request: PromptRequest = Body(...), db: Session = Depends(get_db)):
     if not request.prompt.strip():
-        raise HTTPException(status_code=422, detail="Prompt cant be empty")
+        raise HTTPException(status_code=422, detail="Prompt can't be empty")
 
     if not openai.api_key:
         raise HTTPException(status_code=500, detail="OpenAI API key not configured")
@@ -268,12 +271,32 @@ async def generate_text(request: PromptRequest = Body(...)):
         response = openai.ChatCompletion.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "system", "content": "You are a helpful assistant who returns JSON with the keys: summary (string), key_points (list of strings), and sentiment (string). Respond ONLY with valid JSON."},
                 {"role": "user", "content": request.prompt}
             ],
-            max_tokens=150,
+            max_tokens=300,
         )
-        generated_text = response.choices[0].message.content
-        return {"generated_text": generated_text}
+
+        raw_text = response.choices[0].message.content
+
+        # Versuche, den JSON-Text zu parsen
+        structured_output = json.loads(raw_text)
+
+        # Speichere in der DB
+        db_generated = GeneratedText(
+            prompt=request.prompt,
+            summary=structured_output.get("summary", ""),
+            key_points=structured_output.get("key_points", []),
+            sentiment=structured_output.get("sentiment", ""),
+        )
+        db.add(db_generated)
+        db.commit()
+        db.refresh(db_generated)
+
+        return db_generated
+
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Could not parse response as JSON")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+

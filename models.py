@@ -1,6 +1,19 @@
-from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, DateTime, Text
 from sqlalchemy.orm import relationship
+from sqlalchemy.types import JSON
+from datetime import datetime
 from database import Base
+
+
+class GeneratedText(Base):
+    __tablename__ = "generated_texts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    prompt = Column(Text, nullable=False)
+    summary = Column(Text, nullable=False)
+    key_points = Column(JSON, nullable=False)
+    sentiment = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class Customer(Base):
     __tablename__ = "customers"
