@@ -3,16 +3,20 @@ from models import Customer, Product, Employee, Sale
 from datetime import date
 from decimal import Decimal
 import random
+from contextlib import contextmanager
 
-db = SessionLocal()
+@contextmanager
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-# --- Hilfsfunktionen ---
-def create_entries(model_class, data_list):
-    """Fügt eine Liste von Dictionaries als neue Einträge in die Datenbank ein."""
+def create_entries(db, model_class, data_list):
     for entry in data_list:
         db.add(model_class(**entry))
 
-# --- Seed-Daten ---
 customers = [
     {"name": "Hans Johannesen", "email": "hj1@example.com", "city": "Berlin", "country": "Germany"},
     {"name": "Anna Müller", "email": "anna.mueller@example.com", "city": "Munich", "country": "Germany"},
@@ -83,29 +87,56 @@ employees = [
 ]
 
 def generate_sales(num_sales=20):
-    """Erzeugt eine Liste zufälliger Verkäufe."""
-    return [
-        {
-            "customer_id": (i % 20) + 1,
-            "product_id": random.randint(1, 20),
-            "employee_id": random.randint(1, 20),
-            "quantity": random.randint(1, 5),
-            "total_amount": products[(i % 20)]["price"] * random.randint(1, 5),
-            "sale_date": date(2025, random.randint(1, 6), random.randint(1, 28)),
-            "city": customers[(i % 20)]["city"],
-        }
-        for i in range(num_sales)
-    ]
+    """Generate a list of random sales."""
+    sales = []
+    for i in range(num_sales):
+        quantity = random.randint(1, 5)
+        product_index = i % len(products)
+        price = products[product_index]["price"]
+        total_amount = float(price) * quantity
+        sales.append(
+            {
+                "customer_id": (i % len(customers)) + 1,
+                "product_id": random.randint(1, len(products)),
+                "employee_id": random.randint(1, len(employees)),
+                "quantity": quantity,
+                "total_amount": total_amount,
+                "sale_date": date(2025, random.randint(1, 6), random.randint(1, 28)),
+                "city": customers[(i % len(customers))]["city"],
+            }
+        )
+    return sales
 
 def seed():
-    create_entries(Customer, customers)
-    create_entries(Product, products)
-    create_entries(Employee, employees)
-    db.commit()
+    with get_db() as db:
+        # Check if customers already exist before inserting
+        if db.query(Customer).first() is None:
+            create_entries(db, Customer, customers)
+            print("Customers added.")
+        else:
+            print("Customers already exist, skipping.")
 
-    create_entries(Sale, generate_sales())
-    db.commit()
+        if db.query(Product).first() is None:
+            create_entries(db, Product, products)
+            print("Products added.")
+        else:
+            print("Products already exist, skipping.")
+
+        if db.query(Employee).first() is None:
+            create_entries(db, Employee, employees)
+            print("Employees added.")
+        else:
+            print("Employees already exist, skipping.")
+
+        if db.query(Sale).first() is None:
+            sales_data = generate_sales()
+            create_entries(db, Sale, sales_data)
+            print("Sales added.")
+        else:
+            print("Sales already exist, skipping.")
+
+        db.commit()
 
 if __name__ == "__main__":
     seed()
-    print("✅ Datenbank erfolgreich mit Testdaten befüllt.")
+    print("✅ Database successfully seeded with test data.")
