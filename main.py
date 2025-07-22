@@ -6,10 +6,12 @@ from datetime import date
 from dotenv import load_dotenv
 import os
 import openai
+import json
 
 from schemas import GeneratedTextCreate, GeneratedTextResponse
 from database import SessionLocal, engine
 from models import Base, Sale, Customer, Product, Employee, GeneratedText
+from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
@@ -19,7 +21,18 @@ if not openai_api_key:
 
 openai.api_key = openai_api_key
 
+database_url = os.getenv("DATABASE_URL")
+
 app = FastAPI()
+
+# CORS aktivieren
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def init_db():
     """
@@ -257,7 +270,11 @@ def delete_employee(employee_id: int, db: Session = Depends(get_db)):
 class PromptRequest(BaseModel):
     prompt: str
 
-import json
+class ChatRequest(BaseModel):
+    message: str
+
+class ChatResponse(BaseModel):
+    response: str
 
 @app.post("/generate-text", response_model=GeneratedTextResponse)
 async def generate_text(request: PromptRequest = Body(...), db: Session = Depends(get_db)):
@@ -279,10 +296,8 @@ async def generate_text(request: PromptRequest = Body(...), db: Session = Depend
 
         raw_text = response.choices[0].message.content
 
-        # Versuche, den JSON-Text zu parsen
         structured_output = json.loads(raw_text)
 
-        # Speichere in der DB
         db_generated = GeneratedText(
             prompt=request.prompt,
             summary=structured_output.get("summary", ""),
@@ -300,3 +315,22 @@ async def generate_text(request: PromptRequest = Body(...), db: Session = Depend
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat_endpoint(request: ChatRequest):
+    user_message = request.message.strip()
+    if not user_message:
+        raise HTTPException(status_code=422, detail="Nachricht darf nicht leer sein")
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "user", "content": user_message}
+            ],
+            max_tokens=300,
+        )
+        answer = response.choices[0].message.content
+        return {"response": answer}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

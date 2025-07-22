@@ -1,6 +1,21 @@
+# Python cache & env
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.env
 .env
 venv/
-.venv/
+env/
+*.sqlite3
+*.db
 
+# IDE / Editor Dateien
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Secrets (API keys etc.)
+.env
