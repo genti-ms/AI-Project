@@ -1,3 +1,4 @@
+# Update-Test: 27.08.2025
 from fastapi import FastAPI, Depends, Body, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text  # <-- hier importieren
