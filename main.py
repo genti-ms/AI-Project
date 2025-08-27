@@ -227,140 +227,6 @@ class EmployeeCreateSchema(BaseModel):
 class UserQuery(BaseModel):
     query: str
 
-# --- CRUD ENDPOINTS ---
-
-# SALES
-@app.get("/sales", response_model=List[SaleSchema])
-def read_sales(db: Session = Depends(get_db)):
-    return db.query(Sale).all()
-
-@app.post("/sales", response_model=SaleSchema, status_code=201)
-def create_sale(sale: SaleCreateSchema, db: Session = Depends(get_db)):
-    db_sale = Sale(**sale.dict())
-    db.add(db_sale)
-    db.commit()
-    db.refresh(db_sale)
-    return db_sale
-
-@app.put("/sales/{sale_id}", response_model=SaleSchema)
-def update_sale(sale_id: int, updated_sale: SaleCreateSchema, db: Session = Depends(get_db)):
-    sale = db.query(Sale).filter(Sale.id == sale_id).first()
-    if not sale:
-        raise HTTPException(status_code=404, detail="Sale not found")
-    for key, value in updated_sale.dict().items():
-        setattr(sale, key, value)
-    db.commit()
-    db.refresh(sale)
-    return sale
-
-@app.delete("/sales/{sale_id}", status_code=204)
-def delete_sale(sale_id: int, db: Session = Depends(get_db)):
-    sale = db.query(Sale).filter(Sale.id == sale_id).first()
-    if not sale:
-        raise HTTPException(status_code=404, detail="Sale not found")
-    db.delete(sale)
-    db.commit()
-    return
-
-# CUSTOMERS
-@app.get("/customers", response_model=List[CustomerSchema])
-def read_customers(db: Session = Depends(get_db)):
-    return db.query(Customer).all()
-
-@app.post("/customers", response_model=CustomerSchema, status_code=201)
-def create_customer(customer: CustomerCreateSchema, db: Session = Depends(get_db)):
-    db_customer = Customer(**customer.dict())
-    db.add(db_customer)
-    db.commit()
-    db.refresh(db_customer)
-    return db_customer
-
-@app.put("/customers/{customer_id}", response_model=CustomerSchema)
-def update_customer(customer_id: int, updated_customer: CustomerCreateSchema, db: Session = Depends(get_db)):
-    customer = db.query(Customer).filter(Customer.id == customer_id).first()
-    if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found")
-    for key, value in updated_customer.dict().items():
-        setattr(customer, key, value)
-    db.commit()
-    db.refresh(customer)
-    return customer
-
-@app.delete("/customers/{customer_id}", status_code=204)
-def delete_customer(customer_id: int, db: Session = Depends(get_db)):
-    customer = db.query(Customer).filter(Customer.id == customer_id).first()
-    if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found")
-    db.delete(customer)
-    db.commit()
-    return
-
-# PRODUCTS
-@app.get("/products", response_model=List[ProductSchema])
-def read_products(db: Session = Depends(get_db)):
-    return db.query(Product).all()
-
-@app.post("/products", response_model=ProductSchema, status_code=201)
-def create_product(product: ProductCreateSchema, db: Session = Depends(get_db)):
-    db_product = Product(**product.dict())
-    db.add(db_product)
-    db.commit()
-    db.refresh(db_product)
-    return db_product
-
-@app.put("/products/{product_id}", response_model=ProductSchema)
-def update_product(product_id: int, updated_product: ProductCreateSchema, db: Session = Depends(get_db)):
-    product = db.query(Product).filter(Product.id == product_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    for key, value in updated_product.dict().items():
-        setattr(product, key, value)
-    db.commit()
-    db.refresh(product)
-    return product
-
-@app.delete("/products/{product_id}", status_code=204)
-def delete_product(product_id: int, db: Session = Depends(get_db)):
-    product = db.query(Product).filter(Product.id == product_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    db.delete(product)
-    db.commit()
-    return
-
-# EMPLOYEES
-@app.get("/employees", response_model=List[EmployeeSchema])
-def read_employees(db: Session = Depends(get_db)):
-    return db.query(Employee).all()
-
-@app.post("/employees", response_model=EmployeeSchema, status_code=201)
-def create_employee(employee: EmployeeCreateSchema, db: Session = Depends(get_db)):
-    db_employee = Employee(**employee.dict())
-    db.add(db_employee)
-    db.commit()
-    db.refresh(db_employee)
-    return db_employee
-
-@app.put("/employees/{employee_id}", response_model=EmployeeSchema)
-def update_employee(employee_id: int, updated_employee: EmployeeCreateSchema, db: Session = Depends(get_db)):
-    employee = db.query(Employee).filter(Employee.id == employee_id).first()
-    if not employee:
-        raise HTTPException(status_code=404, detail="Employee not found")
-    for key, value in updated_employee.dict().items():
-        setattr(employee, key, value)
-    db.commit()
-    db.refresh(employee)
-    return employee
-
-@app.delete("/employees/{employee_id}", status_code=204)
-def delete_employee(employee_id: int, db: Session = Depends(get_db)):
-    employee = db.query(Employee).filter(Employee.id == employee_id).first()
-    if not employee:
-        raise HTTPException(status_code=404, detail="Employee not found")
-    db.delete(employee)
-    db.commit()
-    return
-
 # --- AI SQL ENDPOINT ---
 @app.post("/ask")
 def ask_sql(user_query: UserQuery, db: Session = Depends(get_db)):
@@ -371,6 +237,19 @@ def ask_sql(user_query: UserQuery, db: Session = Depends(get_db)):
 
     if not is_safe_sql_query(sql_query_clean):
         raise HTTPException(status_code=400, detail=f"Generated query is unsafe: {sql_query_clean}")
+
+    # Nonsense-Abfanglogik mit Zeilenumbruch
+    generic_queries = [
+        "select * from sales",
+        "select * from customers",
+        "select * from products",
+        "select * from employees"
+    ]
+    if sql_query_clean.lower() in generic_queries:
+        raise HTTPException(
+            status_code=400,
+            detail="⚠️ Hinweis:\n❌ Ich konnte deine Eingabe nicht verstehen.\n       Formuliere deine Eingabe klarer, was du wissen möchtest\n👉 Bitte probiere es nochmal."
+        )
 
     try:
         result = db.execute(text(sql_query_clean))

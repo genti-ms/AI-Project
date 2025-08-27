@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import axios from "axios";
@@ -13,7 +12,6 @@ import {
 } from "@mui/material";
 import "./App.css";
 
-// ✅ Eigene Bilder importieren
 import logo from "./assets/Dattabuddy.png";
 import salesAvatar from "./assets/sales.jpg";
 import productAvatar from "./assets/Customer-Support-Team.jpg";
@@ -23,7 +21,7 @@ function App() {
   const [chats, setChats] = useState([
     {
       id: "1",
-      name: "Sales - Support",
+      name: "Sales - Datenbuddy",
       avatar: salesAvatar,
       messages: [
         { id: uuidv4(), sender: "bot", text: "Hallo 👋, was möchtest du zu unseren Sales wissen?", time: new Date() },
@@ -31,18 +29,26 @@ function App() {
     },
     {
       id: "2",
-      name: "Produkt - Support",
+      name: "Produkt - Datenbuddy",
       avatar: productAvatar,
       messages: [
-        { id: uuidv4(), sender: "bot", text: "Willkommen beim Produkt - Support 💬", time: new Date() },
+        { id: uuidv4(), sender: "bot", text: "Willkommen bei der Produkt - Information 💬", time: new Date() },
       ],
     },
     {
       id: "3",
-      name: "Team - Support",
+      name: "Team - Datenbuddy",
       avatar: teamAvatar,
       messages: [
         { id: uuidv4(), sender: "bot", text: "Team-Chat geöffnet 🚀", time: new Date() },
+      ],
+    },
+    {
+      id: "4",
+      name: "Customer - Datenbuddy",
+      avatar: productAvatar, // Hier kannst du ein eigenes Avatar-Bild für Customer nehmen
+      messages: [
+        { id: uuidv4(), sender: "bot", text: "Willkommen beim Customer - Support 💬", time: new Date() },
       ],
     },
   ]);
@@ -110,7 +116,7 @@ function App() {
       const errorMessage = {
         id: uuidv4(),
         sender: "bot",
-        text: "❌ Fehler beim Abrufen der Daten.",
+        text: err.response?.data?.detail || "❌ Fehler beim Abrufen der Daten.",
         time: new Date(),
       };
       setChats((prevChats) =>
@@ -137,7 +143,7 @@ function App() {
     if (msg.table && msg.table.length > 0) {
       return (
         <>
-          <span>{msg.text}</span>
+          <span style={{ whiteSpace: "pre-line" }}>{msg.text}</span>
           <TableContainer component={Paper} className="table-container">
             <Table size="small">
               <TableHead>
@@ -167,7 +173,7 @@ function App() {
       );
     }
 
-    return <span>{msg.text}</span>;
+    return <span style={{ whiteSpace: "pre-line" }}>{msg.text}</span>;
   };
 
   const truncate = (text, length = 30) => {
@@ -176,7 +182,6 @@ function App() {
 
   return (
     <div className="app-container">
-      {/* Sidebar */}
       <div className="sidebar">
         <div className="sidebar-header">
           <div className="logo-container">
@@ -216,7 +221,6 @@ function App() {
         </div>
       </div>
 
-      {/* Chatbereich */}
       <div className="chat-area">
         <div className="chat-header">
           <img src={activeChat.avatar} alt={activeChat.name} />
