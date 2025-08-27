@@ -1,3 +1,4 @@
+# Update-Test: 27.08.2025
 from sqlalchemy import create_engine, MetaData
 from sqlalchemy.orm import sessionmaker, declarative_base
 import os

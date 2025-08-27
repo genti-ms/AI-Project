@@ -1,3 +1,4 @@
+# Update-Date: 27.08.2025
 CREATE TABLE customers (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT,

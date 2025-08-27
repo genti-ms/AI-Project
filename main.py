@@ -1,99 +1,100 @@
 # Update-Test: 27.08.2025
-from fastapi import FastAPI, Depends, Body, HTTPException
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import text  # <-- hier importieren
+from sqlalchemy import text
 from typing import List
 from pydantic import BaseModel
 from datetime import date
 from dotenv import load_dotenv
 import os
 import openai
-import json
 import re
 
-from schemas import GeneratedTextCreate, GeneratedTextResponse
 from database import SessionLocal, engine
-from models import Base, Sale, Customer, Product, Employee, GeneratedText
+from models import Base, Sale, Customer, Product, Employee
+
 from fastapi.middleware.cors import CORSMiddleware
 
-# Umgebungsvariablen laden
+# --- ENVIRONMENT ---
 load_dotenv()
-
-# OpenAI API-Key aus Umgebungsvariablen lesen
 openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
-    raise ValueError("OpenAI API key not found in environment variables")
-
+    raise ValueError("OpenAI API key not found")
 openai.api_key = openai_api_key
 
-database_url = os.getenv("DATABASE_URL")
-
-# FastAPI-App initialisieren
+# --- APP ---
 app = FastAPI()
 
-# CORS Middleware konfigurieren (Cross-Origin Resource Sharing)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Erlaube alle Ursprünge (für Entwicklung; ggf. einschränken in Produktion)
+    allow_origins=["*"],  # dev
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
+# --- DATABASE ---
 def init_db():
-    """
-    Datenbank-Tabellen erstellen, falls noch nicht vorhanden.
-    Wird beim Startup ausgeführt.
-    """
     Base.metadata.create_all(bind=engine)
 
-
 def get_db():
-    """
-    Liefert eine Datenbank-Session (Dependency für FastAPI).
-    Stellt sicher, dass die Session nach Verwendung geschlossen wird.
-    """
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
 
-
 @app.on_event("startup")
 def on_startup():
-    """
-    Event-Handler beim Start der App.
-    Initialisiert die Datenbank.
-    """
     init_db()
 
-
-# --- SQL-Generierung mit OpenAI GPT ---
-
+# --- SQL GENERATION ---
 def generate_sql_query(user_message: str) -> str:
-    """
-    Generiert aus einer Nutzereingabe eine SQL-SELECT-Query über GPT-4o-mini.
-    Erlaubt nur SELECT, keine destruktiven SQL-Befehle.
+    schema_hint = """
+    Table: sales
+      - id (int)
+      - customer_id (int)
+      - product_id (int)
+      - employee_id (int)
+      - quantity (int)
+      - total_amount (float)
+      - sale_date (date)
+      - city (string)
 
-    :param user_message: Freitext des Nutzers
-    :return: SQL-Query als String
+    Table: customers
+      - id (int)
+      - name (string)
+      - email (string)
+      - city (string)
+      - country (string)
+
+    Table: products
+      - id (int)
+      - name (string)
+      - description (string)
+      - price (float)
+      - stock (int)
+
+    Table: employees
+      - id (int)
+      - first_name (string)
+      - last_name (string)
+      - email (string)
+      - position (string)
     """
+
     prompt = [
-        {
-            "role": "system",
-            "content": """
-Du bist ein SQL-Experte. Deine Aufgabe ist es, Nutzereingaben in SQL-SELECT-Statements umzuwandeln.
-⚠️ Vermeide alle DELETE, UPDATE, INSERT, DROP, ALTER oder andere destruktive SQL-Befehle.
-✅ Erlaube nur SELECT-Statements mit WHERE, ORDER BY oder GROUP BY.
-Antworte ausschließlich mit der SQL-Query, ohne Erklärung oder Formatierung.
-"""
-        },
-        {
-            "role": "user",
-            "content": user_message
-        }
+        {"role": "system",
+         "content": f"""
+You are an SQL expert. Convert user input into SQL SELECT statements only.
+Do NOT generate DELETE, UPDATE, INSERT, DROP, ALTER, TRUNCATE.
+Use LIMIT if user requests "first" or "top".
+Respond only with SQL, no explanation.
+
+Database schema:
+{schema_hint}
+""" },
+        {"role": "user", "content": user_message}
     ]
 
     response = openai.ChatCompletion.create(
@@ -103,39 +104,27 @@ Antworte ausschließlich mit der SQL-Query, ohne Erklärung oder Formatierung.
         max_tokens=150
     )
 
-    return response.choices[0].message.content.strip()
-
+    query = response.choices[0].message.content.strip()
+    query = re.sub(r"[\n;]+", "", query)
+    if "first" in user_message.lower() and "limit" not in query.lower():
+        query += " LIMIT 1"
+    return query
 
 def is_safe_sql_query(query: str) -> bool:
-    """
-    Prüft, ob eine SQL-Query sicher ist (keine destruktiven Befehle enthält).
-
-    :param query: SQL-Query als String
-    :return: True wenn sicher, sonst False
-    """
     cleaned = query.strip().lower()
-    # Query muss mit SELECT beginnen
     if not cleaned.startswith("select"):
         return False
-    # Verbote für gefährliche SQL-Befehle
     unsafe_keywords = ["delete", "drop", "update", "insert", "alter", "truncate"]
     for keyword in unsafe_keywords:
         if re.search(rf"\b{keyword}\b", cleaned):
             return False
     return True
 
-
 def results_to_html_table(results):
-    """
-    Wandelt SQL-Ergebnis (Liste von Zeilen) in eine HTML-Tabelle um.
-
-    :param results: Liste von Ergebnissen (RowProxy-Objekte)
-    :return: HTML-String mit Tabelle
-    """
     if not results:
-        return "<p>Keine Ergebnisse gefunden.</p>"
+        return "<p>No results found.</p>"
 
-    columns = results[0].keys()  # <-- hier geändert
+    columns = results[0].keys()
     html = '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">'
     html += "<thead><tr>"
     for col in columns:
@@ -152,14 +141,12 @@ def results_to_html_table(results):
 
     return html
 
-
-# ----- CRUD-ENDPOINTS FÜR ENTITIES -----
-# SALES
-
+# --- SCHEMAS ---
 class SaleSchema(BaseModel):
     id: int
     customer_id: int
     product_id: int
+    employee_id: int
     quantity: int
     total_amount: float
     sale_date: date
@@ -167,11 +154,11 @@ class SaleSchema(BaseModel):
 
     class Config:
         orm_mode = True
-
 
 class SaleCreateSchema(BaseModel):
     customer_id: int
     product_id: int
+    employee_id: int
     quantity: int
     total_amount: float
     sale_date: date
@@ -179,57 +166,6 @@ class SaleCreateSchema(BaseModel):
 
     class Config:
         orm_mode = True
-
-
-@app.get("/sales", response_model=List[SaleSchema])
-def read_sales(db: Session = Depends(get_db)):
-    """
-    Alle Sales-Datensätze lesen
-    """
-    return db.query(Sale).all()
-
-
-@app.post("/sales", response_model=SaleSchema, status_code=201)
-def create_sale(sale: SaleCreateSchema, db: Session = Depends(get_db)):
-    """
-    Neuen Sale anlegen
-    """
-    db_sale = Sale(**sale.dict())
-    db.add(db_sale)
-    db.commit()
-    db.refresh(db_sale)
-    return db_sale
-
-
-@app.put("/sales/{sale_id}", response_model=SaleSchema)
-def update_sale(sale_id: int, updated_sale: SaleCreateSchema, db: Session = Depends(get_db)):
-    """
-    Sale aktualisieren
-    """
-    sale = db.query(Sale).filter(Sale.id == sale_id).first()
-    if not sale:
-        raise HTTPException(status_code=404, detail="Sale not found")
-    for key, value in updated_sale.dict().items():
-        setattr(sale, key, value)
-    db.commit()
-    db.refresh(sale)
-    return sale
-
-
-@app.delete("/sales/{sale_id}", status_code=204)
-def delete_sale(sale_id: int, db: Session = Depends(get_db)):
-    """
-    Sale löschen
-    """
-    sale = db.query(Sale).filter(Sale.id == sale_id).first()
-    if not sale:
-        raise HTTPException(status_code=404, detail="Sale not found")
-    db.delete(sale)
-    db.commit()
-    return
-
-
-# CUSTOMERS
 
 class CustomerSchema(BaseModel):
     id: int
@@ -241,7 +177,6 @@ class CustomerSchema(BaseModel):
     class Config:
         orm_mode = True
 
-
 class CustomerCreateSchema(BaseModel):
     name: str
     email: str
@@ -250,57 +185,6 @@ class CustomerCreateSchema(BaseModel):
 
     class Config:
         orm_mode = True
-
-
-@app.get("/customers", response_model=List[CustomerSchema])
-def read_customers(db: Session = Depends(get_db)):
-    """
-    Alle Kunden lesen
-    """
-    return db.query(Customer).all()
-
-
-@app.post("/customers", response_model=CustomerSchema, status_code=201)
-def create_customer(customer: CustomerCreateSchema, db: Session = Depends(get_db)):
-    """
-    Neuen Kunden anlegen
-    """
-    db_customer = Customer(**customer.dict())
-    db.add(db_customer)
-    db.commit()
-    db.refresh(db_customer)
-    return db_customer
-
-
-@app.put("/customers/{customer_id}", response_model=CustomerSchema)
-def update_customer(customer_id: int, updated_customer: CustomerCreateSchema, db: Session = Depends(get_db)):
-    """
-    Kunden aktualisieren
-    """
-    customer = db.query(Customer).filter(Customer.id == customer_id).first()
-    if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found")
-    for key, value in updated_customer.dict().items():
-        setattr(customer, key, value)
-    db.commit()
-    db.refresh(customer)
-    return customer
-
-
-@app.delete("/customers/{customer_id}", status_code=204)
-def delete_customer(customer_id: int, db: Session = Depends(get_db)):
-    """
-    Kunden löschen
-    """
-    customer = db.query(Customer).filter(Customer.id == customer_id).first()
-    if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found")
-    db.delete(customer)
-    db.commit()
-    return
-
-
-# PRODUCTS
 
 class ProductSchema(BaseModel):
     id: int
@@ -312,7 +196,6 @@ class ProductSchema(BaseModel):
     class Config:
         orm_mode = True
 
-
 class ProductCreateSchema(BaseModel):
     name: str
     description: str
@@ -321,57 +204,6 @@ class ProductCreateSchema(BaseModel):
 
     class Config:
         orm_mode = True
-
-
-@app.get("/products", response_model=List[ProductSchema])
-def read_products(db: Session = Depends(get_db)):
-    """
-    Alle Produkte lesen
-    """
-    return db.query(Product).all()
-
-
-@app.post("/products", response_model=ProductSchema, status_code=201)
-def create_product(product: ProductCreateSchema, db: Session = Depends(get_db)):
-    """
-    Neues Produkt anlegen
-    """
-    db_product = Product(**product.dict())
-    db.add(db_product)
-    db.commit()
-    db.refresh(db_product)
-    return db_product
-
-
-@app.put("/products/{product_id}", response_model=ProductSchema)
-def update_product(product_id: int, updated_product: ProductCreateSchema, db: Session = Depends(get_db)):
-    """
-    Produkt aktualisieren
-    """
-    product = db.query(Product).filter(Product.id == product_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    for key, value in updated_product.dict().items():
-        setattr(product, key, value)
-    db.commit()
-    db.refresh(product)
-    return product
-
-
-@app.delete("/products/{product_id}", status_code=204)
-def delete_product(product_id: int, db: Session = Depends(get_db)):
-    """
-    Produkt löschen
-    """
-    product = db.query(Product).filter(Product.id == product_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    db.delete(product)
-    db.commit()
-    return
-
-
-# EMPLOYEES
 
 class EmployeeSchema(BaseModel):
     id: int
@@ -383,7 +215,6 @@ class EmployeeSchema(BaseModel):
     class Config:
         orm_mode = True
 
-
 class EmployeeCreateSchema(BaseModel):
     first_name: str
     last_name: str
@@ -393,32 +224,125 @@ class EmployeeCreateSchema(BaseModel):
     class Config:
         orm_mode = True
 
+class UserQuery(BaseModel):
+    query: str
 
+# --- CRUD ENDPOINTS ---
+
+# SALES
+@app.get("/sales", response_model=List[SaleSchema])
+def read_sales(db: Session = Depends(get_db)):
+    return db.query(Sale).all()
+
+@app.post("/sales", response_model=SaleSchema, status_code=201)
+def create_sale(sale: SaleCreateSchema, db: Session = Depends(get_db)):
+    db_sale = Sale(**sale.dict())
+    db.add(db_sale)
+    db.commit()
+    db.refresh(db_sale)
+    return db_sale
+
+@app.put("/sales/{sale_id}", response_model=SaleSchema)
+def update_sale(sale_id: int, updated_sale: SaleCreateSchema, db: Session = Depends(get_db)):
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+    for key, value in updated_sale.dict().items():
+        setattr(sale, key, value)
+    db.commit()
+    db.refresh(sale)
+    return sale
+
+@app.delete("/sales/{sale_id}", status_code=204)
+def delete_sale(sale_id: int, db: Session = Depends(get_db)):
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+    db.delete(sale)
+    db.commit()
+    return
+
+# CUSTOMERS
+@app.get("/customers", response_model=List[CustomerSchema])
+def read_customers(db: Session = Depends(get_db)):
+    return db.query(Customer).all()
+
+@app.post("/customers", response_model=CustomerSchema, status_code=201)
+def create_customer(customer: CustomerCreateSchema, db: Session = Depends(get_db)):
+    db_customer = Customer(**customer.dict())
+    db.add(db_customer)
+    db.commit()
+    db.refresh(db_customer)
+    return db_customer
+
+@app.put("/customers/{customer_id}", response_model=CustomerSchema)
+def update_customer(customer_id: int, updated_customer: CustomerCreateSchema, db: Session = Depends(get_db)):
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    for key, value in updated_customer.dict().items():
+        setattr(customer, key, value)
+    db.commit()
+    db.refresh(customer)
+    return customer
+
+@app.delete("/customers/{customer_id}", status_code=204)
+def delete_customer(customer_id: int, db: Session = Depends(get_db)):
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    db.delete(customer)
+    db.commit()
+    return
+
+# PRODUCTS
+@app.get("/products", response_model=List[ProductSchema])
+def read_products(db: Session = Depends(get_db)):
+    return db.query(Product).all()
+
+@app.post("/products", response_model=ProductSchema, status_code=201)
+def create_product(product: ProductCreateSchema, db: Session = Depends(get_db)):
+    db_product = Product(**product.dict())
+    db.add(db_product)
+    db.commit()
+    db.refresh(db_product)
+    return db_product
+
+@app.put("/products/{product_id}", response_model=ProductSchema)
+def update_product(product_id: int, updated_product: ProductCreateSchema, db: Session = Depends(get_db)):
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    for key, value in updated_product.dict().items():
+        setattr(product, key, value)
+    db.commit()
+    db.refresh(product)
+    return product
+
+@app.delete("/products/{product_id}", status_code=204)
+def delete_product(product_id: int, db: Session = Depends(get_db)):
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    db.delete(product)
+    db.commit()
+    return
+
+# EMPLOYEES
 @app.get("/employees", response_model=List[EmployeeSchema])
 def read_employees(db: Session = Depends(get_db)):
-    """
-    Alle Mitarbeiter lesen
-    """
     return db.query(Employee).all()
-
 
 @app.post("/employees", response_model=EmployeeSchema, status_code=201)
 def create_employee(employee: EmployeeCreateSchema, db: Session = Depends(get_db)):
-    """
-    Neuen Mitarbeiter anlegen
-    """
     db_employee = Employee(**employee.dict())
     db.add(db_employee)
     db.commit()
     db.refresh(db_employee)
     return db_employee
 
-
 @app.put("/employees/{employee_id}", response_model=EmployeeSchema)
 def update_employee(employee_id: int, updated_employee: EmployeeCreateSchema, db: Session = Depends(get_db)):
-    """
-    Mitarbeiter aktualisieren
-    """
     employee = db.query(Employee).filter(Employee.id == employee_id).first()
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -428,12 +352,8 @@ def update_employee(employee_id: int, updated_employee: EmployeeCreateSchema, db
     db.refresh(employee)
     return employee
 
-
 @app.delete("/employees/{employee_id}", status_code=204)
 def delete_employee(employee_id: int, db: Session = Depends(get_db)):
-    """
-    Mitarbeiter löschen
-    """
     employee = db.query(Employee).filter(Employee.id == employee_id).first()
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -441,62 +361,21 @@ def delete_employee(employee_id: int, db: Session = Depends(get_db)):
     db.commit()
     return
 
+# --- AI SQL ENDPOINT ---
+@app.post("/ask")
+def ask_sql(user_query: UserQuery, db: Session = Depends(get_db)):
+    sql_query = generate_sql_query(user_query.query)
 
-# GENERIERTE TEXTE (ChatGPT)
+    # Bereinigen: Markdown-Tags entfernen
+    sql_query_clean = re.sub(r"```(?:sql)?", "", sql_query, flags=re.IGNORECASE).strip()
 
-@app.post("/texts", response_model=GeneratedTextResponse, status_code=201)
-def create_generated_text(text_create: GeneratedTextCreate, db: Session = Depends(get_db)):
-    """
-    Neuen generierten Text speichern
-    """
-    db_text = GeneratedText(**text_create.dict())
-    db.add(db_text)
-    db.commit()
-    db.refresh(db_text)
-    return db_text
-
-
-@app.get("/texts", response_model=List[GeneratedTextResponse])
-def read_generated_texts(db: Session = Depends(get_db)):
-    """
-    Alle generierten Texte lesen
-    """
-    return db.query(GeneratedText).all()
-
-
-# CHAT-ENDPOINT, der SQL-Query generiert und ausführt
-
-class ChatRequest(BaseModel):
-    message: str
-
-
-class ChatResponse(BaseModel):
-    response: str
-
-
-@app.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
-    user_message = request.message.strip()
-    if not user_message:
-        raise HTTPException(status_code=422, detail="Nachricht darf nicht leer sein")
+    if not is_safe_sql_query(sql_query_clean):
+        raise HTTPException(status_code=400, detail=f"Generated query is unsafe: {sql_query_clean}")
 
     try:
-        sql_query = generate_sql_query(user_message)
-
-        if not is_safe_sql_query(sql_query):
-            return {"response": "Achtung: Die generierte SQL-Query ist potenziell gefährlich"}
-
-        results_proxy = db.execute(text(sql_query))
-
-        columns = results_proxy.keys()
-        results = [dict(zip(columns, row)) for row in results_proxy]
-
-        html_table = results_to_html_table(results)
-
-        return {"response": html_table}
-
+        result = db.execute(text(sql_query_clean))
+        rows = [dict(row._mapping) for row in result]
+        html_table = results_to_html_table(rows)
+        return {"query": sql_query_clean, "results_html": html_table}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-
+        raise HTTPException(status_code=400, detail=f"SQL execution error: {str(e)}")
