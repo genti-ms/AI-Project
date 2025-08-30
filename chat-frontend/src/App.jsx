@@ -32,7 +32,7 @@ function App() {
       name: "Produkt - Datenbuddy",
       avatar: productAvatar,
       messages: [
-        { id: uuidv4(), sender: "bot", text: "Willkommen bei der Produkt - Information 💬", time: new Date() },
+        { id: uuidv4(), sender: "bot", text: "Willkommen bei der Produkt-Information 💬", time: new Date() },
       ],
     },
     {
@@ -46,17 +46,17 @@ function App() {
     {
       id: "4",
       name: "Customer - Datenbuddy",
-      avatar: productAvatar, // Hier kannst du ein eigenes Avatar-Bild für Customer nehmen
+      avatar: productAvatar,
       messages: [
-        { id: uuidv4(), sender: "bot", text: "Willkommen beim Customer - Support 💬", time: new Date() },
+        { id: uuidv4(), sender: "bot", text: "Willkommen beim Customer-Support 💬", time: new Date() },
       ],
     },
   ]);
 
   const [activeChatId, setActiveChatId] = useState("1");
   const [input, setInput] = useState("");
+  const [awaitingFollowUp, setAwaitingFollowUp] = useState(false);
   const messagesEndRef = useRef(null);
-
   const activeChat = chats.find((c) => c.id === activeChatId);
 
   useEffect(() => {
@@ -73,45 +73,75 @@ function App() {
       time: new Date(),
     };
 
-    setChats((prevChats) =>
-      prevChats.map((chat) =>
+    setChats(prevChats =>
+      prevChats.map(chat =>
         chat.id === activeChatId
           ? { ...chat, messages: [...chat.messages, userMessage] }
           : chat
       )
     );
+
+    const userInputLower = input.toLowerCase();
     setInput("");
+
+    // Follow-Up Logik
+    if (awaitingFollowUp) {
+      handleFollowUp(userInputLower);
+      return;
+    }
 
     try {
       const response = await axios.post("http://localhost:8000/ask", {
         query: input,
       });
 
+      const resultsHtml = response.data.results_html || "";
+      const sqlQuery = response.data.query || "";
+      const parsedTable = resultsHtml ? parseHTMLTable(resultsHtml) : null;
+
       let botText = "Hier sind die Ergebnisse:";
-      if (!response.data.results_html) {
-        botText = response.data.query
-          ? `Ich habe folgende SQL-Query ausgeführt:\n${response.data.query}`
-          : "Keine Ergebnisse gefunden.";
+
+      // Prüfen, ob Nutzer „alle“/„all“ geschrieben hat
+      const isAllQuery = /alle|all/i.test(userInputLower);
+
+      let sentence = "";
+      if (parsedTable && !isAllQuery) {
+        sentence = generateSentence(parsedTable, activeChat.name);
       }
 
       const botMessage = {
         id: uuidv4(),
         sender: "bot",
-        text: botText,
+        text: sentence ? botText + "\n" + sentence : botText,
         time: new Date(),
-        table: response.data.results_html
-          ? parseHTMLTable(response.data.results_html)
-          : null,
-        query: response.data.query || null,
+        table: parsedTable,
+        query: sqlQuery,
       };
 
-      setChats((prevChats) =>
-        prevChats.map((chat) =>
+      setChats(prevChats =>
+        prevChats.map(chat =>
           chat.id === activeChatId
             ? { ...chat, messages: [...chat.messages, botMessage] }
             : chat
         )
       );
+
+      // Follow-Up Nachricht
+      const followUpMessage = {
+        id: uuidv4(),
+        sender: "bot",
+        text: "Kann ich dir sonst mit Daten helfen? Benötigst du noch Infos (Ja/Nein?)",
+        time: new Date(),
+      };
+      setChats(prevChats =>
+        prevChats.map(chat =>
+          chat.id === activeChatId
+            ? { ...chat, messages: [...chat.messages, followUpMessage] }
+            : chat
+        )
+      );
+      setAwaitingFollowUp(true);
+
     } catch (err) {
       const errorMessage = {
         id: uuidv4(),
@@ -119,8 +149,8 @@ function App() {
         text: err.response?.data?.detail || "❌ Fehler beim Abrufen der Daten.",
         time: new Date(),
       };
-      setChats((prevChats) =>
-        prevChats.map((chat) =>
+      setChats(prevChats =>
+        prevChats.map(chat =>
           chat.id === activeChatId
             ? { ...chat, messages: [...chat.messages, errorMessage] }
             : chat
@@ -130,13 +160,63 @@ function App() {
     }
   };
 
+  const handleFollowUp = (inputLower) => {
+    let responseText = "";
+    if (/\bja\b/i.test(inputLower)) {
+      responseText = "Super! 😊 Bitte gib mir genau an, welche Daten du benötigst.";
+      setAwaitingFollowUp(false);
+    } else if (/\bnein\b/i.test(inputLower)) {
+      responseText = "Alles klar! Ich wünsche dir einen schönen Tag! 👋";
+      setAwaitingFollowUp(false);
+    } else {
+      responseText = "Ich konnte deine Eingabe nicht verstehen. Bitte antworte nur mit 'Ja' oder 'Nein'.";
+    }
+
+    const followMessage = {
+      id: uuidv4(),
+      sender: "bot",
+      text: responseText,
+      time: new Date(),
+    };
+
+    setChats(prevChats =>
+      prevChats.map(chat =>
+        chat.id === activeChatId
+          ? { ...chat, messages: [...chat.messages, followMessage] }
+          : chat
+      )
+    );
+  };
+
   const parseHTMLTable = (html) => {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, "text/html");
     const rows = Array.from(doc.querySelectorAll("tr"));
-    return rows.map((tr) =>
-      Array.from(tr.children).map((td) => td.textContent.trim())
+    return rows.map(tr =>
+      Array.from(tr.children).map(td => td.textContent.trim())
     );
+  };
+
+  const generateSentence = (table, chatType) => {
+    if (!table || table.length < 2) return "";
+
+    const headers = table[0];
+    const row = table[1];
+    const data = {};
+    headers.forEach((h, i) => (data[h] = row[i]));
+
+    switch (chatType.toLowerCase()) {
+      case "sales - datenbuddy":
+        return `💰 Der letzte Verkauf:\nKunde: **ID ${data.customer_id}** 🧑‍🤝‍🧑\nProdukt: **ID ${data.product_id}** 🛒\nMenge: **${data.quantity}**, Gesamtbetrag: **${data.total_amount}€** 💵\nDatum: **${data.sale_date}**, Stadt: **${data.city}** 🏙️`;
+      case "produkt - datenbuddy":
+        return `📦 Produktinfo:\nName: **${data.name}** (ID ${data.id})\nPreis: **${data.price}€** 💵\nBeschreibung: ${data.description}\nVerfügbar: **${data.stock} Stück**`;
+      case "team - datenbuddy":
+        return `👤 Mitarbeiter:\nName: **${data.first_name} ${data.last_name}**\nPosition: **${data.position}** 💼\nE-Mail: ✉️ ${data.email}`;
+      case "customer - datenbuddy":
+        return `🧑‍🤝‍🧑 Kunde:\nName: **${data.name}** (ID ${data.id})\nE-Mail: ✉️ ${data.email}\nStadt: **${data.city}**, Land: **${data.country}**`;
+      default:
+        return "";
+    }
   };
 
   const renderMessage = (msg) => {
@@ -144,7 +224,7 @@ function App() {
       return (
         <>
           <span style={{ whiteSpace: "pre-line" }}>{msg.text}</span>
-          <TableContainer component={Paper} className="table-container">
+          <TableContainer component={Paper} className="table-container" style={{ marginTop: "8px" }}>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -165,7 +245,7 @@ function App() {
             </Table>
           </TableContainer>
           {msg.query && (
-            <div className="sql-query">
+            <div className="sql-query" style={{ marginTop: "4px", fontStyle: "italic", fontSize: "0.9em" }}>
               SQL: {msg.query}
             </div>
           )}
@@ -174,10 +254,6 @@ function App() {
     }
 
     return <span style={{ whiteSpace: "pre-line" }}>{msg.text}</span>;
-  };
-
-  const truncate = (text, length = 30) => {
-    return text.length > length ? text.slice(0, length) + "..." : text;
   };
 
   return (
@@ -190,7 +266,7 @@ function App() {
           </div>
         </div>
         <div className="chat-list">
-          {chats.map((chat) => (
+          {chats.map(chat => (
             <div
               key={chat.id}
               className={`chat-item ${chat.id === activeChatId ? "active" : ""}`}
@@ -202,18 +278,11 @@ function App() {
                   <span className="chat-name">{chat.name}</span>
                   <span className="chat-time">
                     {chat.messages.length > 0 &&
-                      new Date(
-                        chat.messages[chat.messages.length - 1].time
-                      ).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      new Date(chat.messages[chat.messages.length - 1].time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </span>
                 </div>
                 <div className="chat-last">
-                  {chat.messages.length > 0
-                    ? truncate(chat.messages[chat.messages.length - 1].text)
-                    : "Keine Nachrichten"}
+                  {chat.messages.length > 0 ? chat.messages[chat.messages.length - 1].text.slice(0, 30) + (chat.messages[chat.messages.length - 1].text.length > 30 ? "..." : "") : "Keine Nachrichten"}
                 </div>
               </div>
             </div>
@@ -228,7 +297,7 @@ function App() {
         </div>
 
         <div className="messages">
-          {activeChat.messages.map((msg) => (
+          {activeChat.messages.map(msg => (
             <div key={msg.id} className={`message ${msg.sender}`}>
               {renderMessage(msg)}
             </div>

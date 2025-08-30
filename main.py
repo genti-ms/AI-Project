@@ -232,23 +232,25 @@ class UserQuery(BaseModel):
 def ask_sql(user_query: UserQuery, db: Session = Depends(get_db)):
     sql_query = generate_sql_query(user_query.query)
 
-    # Bereinigen: Markdown-Tags entfernen
     sql_query_clean = re.sub(r"```(?:sql)?", "", sql_query, flags=re.IGNORECASE).strip()
 
     if not is_safe_sql_query(sql_query_clean):
         raise HTTPException(status_code=400, detail=f"Generated query is unsafe: {sql_query_clean}")
 
-    # Nonsense-Abfanglogik mit Zeilenumbruch
+    # Prüfen auf "alle"/"all" in der Nutzeranfrage
+    user_query_lower = user_query.query.lower()
+    is_all = any(keyword in user_query_lower for keyword in ["alle", "all"])
+
     generic_queries = [
         "select * from sales",
         "select * from customers",
         "select * from products",
         "select * from employees"
     ]
-    if sql_query_clean.lower() in generic_queries:
+    if sql_query_clean.lower() in generic_queries and not is_all:
         raise HTTPException(
             status_code=400,
-            detail="⚠️ Hinweis:\n❌ Ich konnte deine Eingabe nicht verstehen.\n       Formuliere deine Eingabe klarer, was du wissen möchtest\n👉 Bitte probiere es nochmal."
+            detail="⚠️ Hinweis:\n❌ Ich konnte deine Eingabe nicht verstehen.\nFormuliere deine Eingabe klarer, was du wissen möchtest\n👉 Bitte probiere es nochmal."
         )
 
     try:

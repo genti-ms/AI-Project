@@ -21,15 +21,14 @@ body {
   flex-direction: column;
   border-right: 1px solid #cfd8dc;
   color: #111;
-  background-color: #e8f0f2; /* heller Hintergrund für Sidebar */
+  background-color: #e8f0f2;
 }
 
-/* Logobox oben */
 .sidebar-header {
   padding: 16px;
-  background-color: #ffffff; /* helle Box für Logo */
-  border-bottom: 2px solid #0d3b66; /* dunkler Akzent als Trennung */
-  box-shadow: 0 2px 4px rgba(0,0,0,0.08); /* leichter Schatten */
+  background-color: #ffffff;
+  border-bottom: 2px solid #0d3b66;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.08);
 }
 
 .logo-container {
@@ -47,14 +46,14 @@ body {
 .app-name {
   font-size: 20px;
   font-weight: bold;
-  color: #0d3b66; /* dunkler, wie im Logo */
+  color: #0d3b66;
 }
 
 /* Chatliste */
 .chat-list {
   flex: 1;
   overflow-y: auto;
-  background-color: #d9ebf2; /* etwas dunkler als Logobox */
+  background-color: #d9ebf2;
 }
 
 .chat-item {
@@ -156,17 +155,28 @@ body {
   display: inline-block;
   margin-bottom: 12px;
   padding: 12px 16px;
-  max-width: 60%;
+  max-width: 65%;
   word-wrap: break-word;
   box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  line-height: 1.4;
+  font-size: 14px;
 }
 
+/* Bot-Nachrichten */
 .message.bot {
   align-self: flex-start;
   background-color: #ffffff;
   border-radius: 0 12px 12px 12px;
+  position: relative;
+  transition: background 0.2s ease;
 }
 
+.message.bot.follow-up {
+  background-color: #fff8dc; /* helles Gelb für Follow-Up */
+  border-left: 4px solid #f0c14b;
+}
+
+/* User-Nachrichten */
 .message.user {
   align-self: flex-end;
   background-color: #0d3b66;
@@ -221,14 +231,37 @@ body {
   border: 1px solid #ddd;
   border-radius: 6px;
   background-color: #ffffff;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
 
+.table-container table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.table-container th {
+  background-color: #0d3b66;
+  color: #fff;
+  padding: 6px;
+}
+
+.table-container td {
+  padding: 6px;
+  border-bottom: 1px solid #eee;
+}
+
+/* SQL-Anzeige */
 .sql-query {
   margin-top: 5px;
   font-style: italic;
   color: #555;
+  background-color: #f3f3f3;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
 }
 
+/* kleine Schrift */
 small {
   color: #555;
   font-size: 0.8em;
@@ -248,5 +281,8 @@ small {
   }
   .app-name {
     font-size: 16px;
+  }
+  .message {
+    max-width: 80%;
   }
 }
