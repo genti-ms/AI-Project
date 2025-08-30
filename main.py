@@ -1,17 +1,15 @@
-# Update-Test: 27.08.2025
+# Letzte bearbeitung 30.08
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from typing import List
 from pydantic import BaseModel
-from datetime import date
 from dotenv import load_dotenv
 import os
 import openai
 import re
 
 from database import SessionLocal, engine
-from models import Base, Sale, Customer, Product, Employee
+from models import Base
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -24,10 +22,9 @@ openai.api_key = openai_api_key
 
 # --- APP ---
 app = FastAPI()
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # dev
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,49 +45,68 @@ def get_db():
 def on_startup():
     init_db()
 
-# --- SQL GENERATION ---
+# --- Pydantic Schema ---
+class UserQuery(BaseModel):
+    query: str
+
+# --- Helper Functions ---
+def is_safe_sql_query(query: str) -> bool:
+    cleaned = query.strip().lower()
+    if not cleaned.startswith("select"):
+        return False
+    unsafe_keywords = ["delete", "drop", "update", "insert", "alter", "truncate"]
+    return all(keyword not in cleaned for keyword in unsafe_keywords)
+
+def results_to_html_table(results):
+    if not results:
+        return "<p>No results found.</p>"
+    columns = results[0].keys()
+    html = '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">'
+    html += "<thead><tr>" + "".join(f"<th>{col}</th>" for col in columns) + "</tr></thead><tbody>"
+    for row in results:
+        html += "<tr>" + "".join(f"<td>{row.get(col, '—')}</td>" for col in columns) + "</tr>"
+    html += "</tbody></table>"
+    return html
+
+# --- SQL Post-Processing ---
+def fix_sql_for_sqlite(query: str) -> str:
+    # SQLite-kompatible Datumsfunktionen
+    query = re.sub(r"CURDATE\(\)", "date('now')", query, flags=re.IGNORECASE)
+    query = re.sub(r"NOW\(\)\s*-\s*INTERVAL\s+(\d+)\s+DAY", r"date('now','-\1 days')", query, flags=re.IGNORECASE)
+    # Leerzeichen nach AS, FROM, GROUP BY, ORDER BY
+    query = re.sub(r"AS(\w)", r"AS \1", query)
+    query = re.sub(r"FROM(\w)", r"FROM \1", query)
+    query = re.sub(r"GROUPBY", "GROUP BY", query, flags=re.IGNORECASE)
+    query = re.sub(r"ORDERBY", "ORDER BY", query, flags=re.IGNORECASE)
+    query = re.sub(r"DESC(LIMIT)", r"DESC \1", query, flags=re.IGNORECASE)
+    query = re.sub(r"WHERE(\w)", r"WHERE \1", query)
+    return query.strip()
+
 def generate_sql_query(user_message: str) -> str:
     schema_hint = """
     Table: sales
-      - id (int)
-      - customer_id (int)
-      - product_id (int)
-      - employee_id (int)
-      - quantity (int)
-      - total_amount (float)
-      - sale_date (date)
-      - city (string)
-
+      - id, customer_id, product_id, employee_id, quantity, total_amount, sale_date, city
     Table: customers
-      - id (int)
-      - name (string)
-      - email (string)
-      - city (string)
-      - country (string)
-
+      - id, name, email, city, country, created_at
     Table: products
-      - id (int)
-      - name (string)
-      - description (string)
-      - price (float)
-      - stock (int)
-
+      - id, name, category, price, stock, created_at
     Table: employees
-      - id (int)
-      - first_name (string)
-      - last_name (string)
-      - email (string)
-      - position (string)
+      - id, name, region, hire_date
     """
-
     prompt = [
-        {"role": "system",
-         "content": f"""
+        {"role": "system", "content": f"""
 You are an SQL expert. Convert user input into SQL SELECT statements only.
-Do NOT generate DELETE, UPDATE, INSERT, DROP, ALTER, TRUNCATE.
-Use LIMIT if user requests "first" or "top".
-Respond only with SQL, no explanation.
-
+Rules:
+- Use only SELECT (no DELETE, UPDATE, etc.)
+- 'neueste/r', 'letzte/r', 'aktuelle/r' → ORDER BY <date_field> DESC LIMIT 1
+- 'älteste/r' → ORDER BY <date_field> ASC LIMIT 1
+- 'letzten X' → ORDER BY <date_field> DESC LIMIT X
+- 'wie viele' → SELECT COUNT(*) AS count ...
+- 'am meisten gekauft/verkauft/beliebt':
+   * customers → GROUP BY customer_id ORDER BY SUM(total_amount) DESC
+   * products → GROUP BY product_id ORDER BY SUM(quantity) DESC LIMIT 1
+- 'Top X' → ORDER BY SUM(...) DESC LIMIT X
+Use SQLite date syntax: date('now'), date('now','-X days')
 Database schema:
 {schema_hint}
 """ },
@@ -108,149 +124,25 @@ Database schema:
     query = re.sub(r"[\n;]+", "", query)
     if "first" in user_message.lower() and "limit" not in query.lower():
         query += " LIMIT 1"
-    return query
+    return fix_sql_for_sqlite(query)
 
-def is_safe_sql_query(query: str) -> bool:
-    cleaned = query.strip().lower()
-    if not cleaned.startswith("select"):
-        return False
-    unsafe_keywords = ["delete", "drop", "update", "insert", "alter", "truncate"]
-    for keyword in unsafe_keywords:
-        if re.search(rf"\b{keyword}\b", cleaned):
-            return False
-    return True
-
-def results_to_html_table(results):
-    if not results:
-        return "<p>No results found.</p>"
-
-    columns = results[0].keys()
-    html = '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">'
-    html += "<thead><tr>"
-    for col in columns:
-        html += f"<th>{col}</th>"
-    html += "</tr></thead>"
-
-    html += "<tbody>"
-    for row in results:
-        html += "<tr>"
-        for col in columns:
-            html += f"<td>{row[col]}</td>"
-        html += "</tr>"
-    html += "</tbody></table>"
-
-    return html
-
-# --- SCHEMAS ---
-class SaleSchema(BaseModel):
-    id: int
-    customer_id: int
-    product_id: int
-    employee_id: int
-    quantity: int
-    total_amount: float
-    sale_date: date
-    city: str
-
-    class Config:
-        orm_mode = True
-
-class SaleCreateSchema(BaseModel):
-    customer_id: int
-    product_id: int
-    employee_id: int
-    quantity: int
-    total_amount: float
-    sale_date: date
-    city: str
-
-    class Config:
-        orm_mode = True
-
-class CustomerSchema(BaseModel):
-    id: int
-    name: str
-    email: str
-    city: str
-    country: str
-
-    class Config:
-        orm_mode = True
-
-class CustomerCreateSchema(BaseModel):
-    name: str
-    email: str
-    city: str
-    country: str
-
-    class Config:
-        orm_mode = True
-
-class ProductSchema(BaseModel):
-    id: int
-    name: str
-    description: str
-    price: float
-    stock: int
-
-    class Config:
-        orm_mode = True
-
-class ProductCreateSchema(BaseModel):
-    name: str
-    description: str
-    price: float
-    stock: int
-
-    class Config:
-        orm_mode = True
-
-class EmployeeSchema(BaseModel):
-    id: int
-    first_name: str
-    last_name: str
-    email: str
-    position: str
-
-    class Config:
-        orm_mode = True
-
-class EmployeeCreateSchema(BaseModel):
-    first_name: str
-    last_name: str
-    email: str
-    position: str
-
-    class Config:
-        orm_mode = True
-
-class UserQuery(BaseModel):
-    query: str
-
-# --- AI SQL ENDPOINT ---
+# --- Endpoint ---
 @app.post("/ask")
 def ask_sql(user_query: UserQuery, db: Session = Depends(get_db)):
     sql_query = generate_sql_query(user_query.query)
-
     sql_query_clean = re.sub(r"```(?:sql)?", "", sql_query, flags=re.IGNORECASE).strip()
 
     if not is_safe_sql_query(sql_query_clean):
         raise HTTPException(status_code=400, detail=f"Generated query is unsafe: {sql_query_clean}")
 
-    # Prüfen auf "alle"/"all" in der Nutzeranfrage
+    # Verhindert generische SELECT * ohne klare Absicht
     user_query_lower = user_query.query.lower()
     is_all = any(keyword in user_query_lower for keyword in ["alle", "all"])
-
-    generic_queries = [
-        "select * from sales",
-        "select * from customers",
-        "select * from products",
-        "select * from employees"
-    ]
+    generic_queries = ["select * from sales", "select * from customers", "select * from products", "select * from employees"]
     if sql_query_clean.lower() in generic_queries and not is_all:
         raise HTTPException(
             status_code=400,
-            detail="⚠️ Hinweis:\n❌ Ich konnte deine Eingabe nicht verstehen.\nFormuliere deine Eingabe klarer, was du wissen möchtest\n👉 Bitte probiere es nochmal."
+            detail="⚠️ Hinweis:\n❌ Ich konnte deine Eingabe nicht verstehen.\nFormuliere deine Eingabe klarer."
         )
 
     try:

@@ -1,4 +1,4 @@
-# Update-Date: 27.08.2025
+# Letzte bearbeitung 30.08
 from pydantic import BaseModel
 from typing import List
 

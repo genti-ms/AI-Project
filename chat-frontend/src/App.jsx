@@ -11,7 +11,6 @@ import {
   Paper,
 } from "@mui/material";
 import "./App.css";
-
 import logo from "./assets/Dattabuddy.png";
 import salesAvatar from "./assets/sales.jpg";
 import productAvatar from "./assets/Customer-Support-Team.jpg";
@@ -24,7 +23,12 @@ function App() {
       name: "Sales - Datenbuddy",
       avatar: salesAvatar,
       messages: [
-        { id: uuidv4(), sender: "bot", text: "Hallo 👋, was möchtest du zu unseren Sales wissen?", time: new Date() },
+        {
+          id: uuidv4(),
+          sender: "bot",
+          text: "Hallo 👋, was möchtest du zu unseren Sales wissen?",
+          time: new Date(),
+        },
       ],
     },
     {
@@ -32,7 +36,12 @@ function App() {
       name: "Produkt - Datenbuddy",
       avatar: productAvatar,
       messages: [
-        { id: uuidv4(), sender: "bot", text: "Willkommen bei der Produkt-Information 💬", time: new Date() },
+        {
+          id: uuidv4(),
+          sender: "bot",
+          text: "Willkommen bei der Produkt-Information 💬",
+          time: new Date(),
+        },
       ],
     },
     {
@@ -40,7 +49,12 @@ function App() {
       name: "Team - Datenbuddy",
       avatar: teamAvatar,
       messages: [
-        { id: uuidv4(), sender: "bot", text: "Team-Chat geöffnet 🚀", time: new Date() },
+        {
+          id: uuidv4(),
+          sender: "bot",
+          text: "Team-Chat geöffnet 🚀",
+          time: new Date(),
+        },
       ],
     },
     {
@@ -48,15 +62,20 @@ function App() {
       name: "Customer - Datenbuddy",
       avatar: productAvatar,
       messages: [
-        { id: uuidv4(), sender: "bot", text: "Willkommen beim Customer-Support 💬", time: new Date() },
+        {
+          id: uuidv4(),
+          sender: "bot",
+          text: "Willkommen beim Customer-Support 💬",
+          time: new Date(),
+        },
       ],
     },
   ]);
 
   const [activeChatId, setActiveChatId] = useState("1");
   const [input, setInput] = useState("");
-  const [awaitingFollowUp, setAwaitingFollowUp] = useState(false);
   const messagesEndRef = useRef(null);
+
   const activeChat = chats.find((c) => c.id === activeChatId);
 
   useEffect(() => {
@@ -73,8 +92,8 @@ function App() {
       time: new Date(),
     };
 
-    setChats(prevChats =>
-      prevChats.map(chat =>
+    setChats((prevChats) =>
+      prevChats.map((chat) =>
         chat.id === activeChatId
           ? { ...chat, messages: [...chat.messages, userMessage] }
           : chat
@@ -84,12 +103,6 @@ function App() {
     const userInputLower = input.toLowerCase();
     setInput("");
 
-    // Follow-Up Logik
-    if (awaitingFollowUp) {
-      handleFollowUp(userInputLower);
-      return;
-    }
-
     try {
       const response = await axios.post("http://localhost:8000/ask", {
         query: input,
@@ -97,51 +110,33 @@ function App() {
 
       const resultsHtml = response.data.results_html || "";
       const sqlQuery = response.data.query || "";
-      const parsedTable = resultsHtml ? parseHTMLTable(resultsHtml) : null;
+      const parsedTable = resultsHtml.includes("<p>No results") ? [] : parseHTMLTable(resultsHtml);
 
-      let botText = "Hier sind die Ergebnisse:";
-
-      // Prüfen, ob Nutzer „alle“/„all“ geschrieben hat
-      const isAllQuery = /alle|all/i.test(userInputLower);
-
-      let sentence = "";
-      if (parsedTable && !isAllQuery) {
-        sentence = generateSentence(parsedTable, activeChat.name);
+      let botText = "";
+      if (parsedTable.length === 0) {
+        botText = "⚠️ Keine Daten gefunden. Bitte prüfe deine Eingabe oder versuche einen anderen Zeitraum.";
+      } else {
+        botText = "Hier sind die Ergebnisse:";
       }
+
+      const sentence = parsedTable.length > 0 ? generateSentence(parsedTable, activeChat.name) : "";
 
       const botMessage = {
         id: uuidv4(),
         sender: "bot",
         text: sentence ? botText + "\n" + sentence : botText,
         time: new Date(),
-        table: parsedTable,
+        table: parsedTable.length > 0 ? parsedTable : null,
         query: sqlQuery,
       };
 
-      setChats(prevChats =>
-        prevChats.map(chat =>
+      setChats((prevChats) =>
+        prevChats.map((chat) =>
           chat.id === activeChatId
             ? { ...chat, messages: [...chat.messages, botMessage] }
             : chat
         )
       );
-
-      // Follow-Up Nachricht
-      const followUpMessage = {
-        id: uuidv4(),
-        sender: "bot",
-        text: "Kann ich dir sonst mit Daten helfen? Benötigst du noch Infos (Ja/Nein?)",
-        time: new Date(),
-      };
-      setChats(prevChats =>
-        prevChats.map(chat =>
-          chat.id === activeChatId
-            ? { ...chat, messages: [...chat.messages, followUpMessage] }
-            : chat
-        )
-      );
-      setAwaitingFollowUp(true);
-
     } catch (err) {
       const errorMessage = {
         id: uuidv4(),
@@ -149,51 +144,25 @@ function App() {
         text: err.response?.data?.detail || "❌ Fehler beim Abrufen der Daten.",
         time: new Date(),
       };
-      setChats(prevChats =>
-        prevChats.map(chat =>
+
+      setChats((prevChats) =>
+        prevChats.map((chat) =>
           chat.id === activeChatId
             ? { ...chat, messages: [...chat.messages, errorMessage] }
             : chat
         )
       );
+
       console.error(err);
     }
-  };
-
-  const handleFollowUp = (inputLower) => {
-    let responseText = "";
-    if (/\bja\b/i.test(inputLower)) {
-      responseText = "Super! 😊 Bitte gib mir genau an, welche Daten du benötigst.";
-      setAwaitingFollowUp(false);
-    } else if (/\bnein\b/i.test(inputLower)) {
-      responseText = "Alles klar! Ich wünsche dir einen schönen Tag! 👋";
-      setAwaitingFollowUp(false);
-    } else {
-      responseText = "Ich konnte deine Eingabe nicht verstehen. Bitte antworte nur mit 'Ja' oder 'Nein'.";
-    }
-
-    const followMessage = {
-      id: uuidv4(),
-      sender: "bot",
-      text: responseText,
-      time: new Date(),
-    };
-
-    setChats(prevChats =>
-      prevChats.map(chat =>
-        chat.id === activeChatId
-          ? { ...chat, messages: [...chat.messages, followMessage] }
-          : chat
-      )
-    );
   };
 
   const parseHTMLTable = (html) => {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, "text/html");
     const rows = Array.from(doc.querySelectorAll("tr"));
-    return rows.map(tr =>
-      Array.from(tr.children).map(td => td.textContent.trim())
+    return rows.map((tr) =>
+      Array.from(tr.children).map((td) => td.textContent.trim())
     );
   };
 
@@ -205,15 +174,17 @@ function App() {
     const data = {};
     headers.forEach((h, i) => (data[h] = row[i]));
 
+    const smallDatasetNotice = table.length === 2 ? "\nHinweis: Es wurden nur wenige Datensätze gefunden." : "";
+
     switch (chatType.toLowerCase()) {
       case "sales - datenbuddy":
-        return `💰 Der letzte Verkauf:\nKunde: **ID ${data.customer_id}** 🧑‍🤝‍🧑\nProdukt: **ID ${data.product_id}** 🛒\nMenge: **${data.quantity}**, Gesamtbetrag: **${data.total_amount}€** 💵\nDatum: **${data.sale_date}**, Stadt: **${data.city}** 🏙️`;
+        return `💰 Der letzte Verkauf:\nKunde: **${data.customer_id || "n.v."}** 🧑‍🤝‍🧑\nProdukt: **${data.product_id || "n.v."}** 🛒\nMenge: **${data.quantity || "n.v."}**, Gesamtbetrag: **${data.total_amount || "n.v."}€** 💵\nDatum: **${data.sale_date || "n.v."}**, Stadt: **${data.city || "n.v."}** 🏙️${smallDatasetNotice}`;
       case "produkt - datenbuddy":
-        return `📦 Produktinfo:\nName: **${data.name}** (ID ${data.id})\nPreis: **${data.price}€** 💵\nBeschreibung: ${data.description}\nVerfügbar: **${data.stock} Stück**`;
+        return `📦 Produktinfo:\nName: **${data.name || "n.v."}** (ID ${data.id || "n.v."})\nPreis: **${data.price || "n.v."}€** 💵\nBeschreibung: ${data.description || "n.v."}\nVerfügbar: **${data.stock || "n.v."} Stück**${smallDatasetNotice}`;
       case "team - datenbuddy":
-        return `👤 Mitarbeiter:\nName: **${data.first_name} ${data.last_name}**\nPosition: **${data.position}** 💼\nE-Mail: ✉️ ${data.email}`;
+        return `👤 Mitarbeiter:\nName: **${data.first_name || data.name || "n.v."} ${data.last_name || ""}**\nPosition: **${data.position || data.region || "n.v."}** 💼\nE-Mail: ✉️ ${data.email || "n.v."}${smallDatasetNotice}`;
       case "customer - datenbuddy":
-        return `🧑‍🤝‍🧑 Kunde:\nName: **${data.name}** (ID ${data.id})\nE-Mail: ✉️ ${data.email}\nStadt: **${data.city}**, Land: **${data.country}**`;
+        return `🧑‍🤝‍🧑 Kunde:\nName: **${data.name || "n.v."}** (ID ${data.id || "n.v."})\nE-Mail: ✉️ ${data.email || "n.v."}\nStadt: **${data.city || "n.v."}**, Land: **${data.country || "n.v."}**${smallDatasetNotice}`;
       default:
         return "";
     }
@@ -224,7 +195,11 @@ function App() {
       return (
         <>
           <span style={{ whiteSpace: "pre-line" }}>{msg.text}</span>
-          <TableContainer component={Paper} className="table-container" style={{ marginTop: "8px" }}>
+          <TableContainer
+            component={Paper}
+            className="table-container"
+            style={{ marginTop: "8px" }}
+          >
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -245,14 +220,16 @@ function App() {
             </Table>
           </TableContainer>
           {msg.query && (
-            <div className="sql-query" style={{ marginTop: "4px", fontStyle: "italic", fontSize: "0.9em" }}>
+            <div
+              className="sql-query"
+              style={{ marginTop: "4px", fontStyle: "italic", fontSize: "0.9em" }}
+            >
               SQL: {msg.query}
             </div>
           )}
         </>
       );
     }
-
     return <span style={{ whiteSpace: "pre-line" }}>{msg.text}</span>;
   };
 
@@ -266,7 +243,7 @@ function App() {
           </div>
         </div>
         <div className="chat-list">
-          {chats.map(chat => (
+          {chats.map((chat) => (
             <div
               key={chat.id}
               className={`chat-item ${chat.id === activeChatId ? "active" : ""}`}
@@ -278,11 +255,17 @@ function App() {
                   <span className="chat-name">{chat.name}</span>
                   <span className="chat-time">
                     {chat.messages.length > 0 &&
-                      new Date(chat.messages[chat.messages.length - 1].time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      new Date(chat.messages[chat.messages.length - 1].time).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
                   </span>
                 </div>
                 <div className="chat-last">
-                  {chat.messages.length > 0 ? chat.messages[chat.messages.length - 1].text.slice(0, 30) + (chat.messages[chat.messages.length - 1].text.length > 30 ? "..." : "") : "Keine Nachrichten"}
+                  {chat.messages.length > 0
+                    ? chat.messages[chat.messages.length - 1].text.slice(0, 30) +
+                      (chat.messages[chat.messages.length - 1].text.length > 30 ? "..." : "")
+                    : "Keine Nachrichten"}
                 </div>
               </div>
             </div>
@@ -297,7 +280,7 @@ function App() {
         </div>
 
         <div className="messages">
-          {activeChat.messages.map(msg => (
+          {activeChat.messages.map((msg) => (
             <div key={msg.id} className={`message ${msg.sender}`}>
               {renderMessage(msg)}
             </div>
